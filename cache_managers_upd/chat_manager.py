@@ -10,6 +10,7 @@ class ChatCacheManager:
     async def load_chat_info(self, chat_id: str):
 
         chat = await self.db.read_documents('chat', {'_id': ObjectId(chat_id)})
+        print("Chat Loaded: ", chat)
         if not chat:
             return None
 
@@ -41,7 +42,7 @@ class ChatCacheManager:
 
     async def update_chat_info(self, chat_id: str, update: dict):
 
-        await self.db.update_document('chat', {'_id': ObjectId(chat_id)}, {"$set": update})
+        await self.db.update_document('chat', {'_id': ObjectId(chat_id)}, update)
         chat_info = await self.get_chat_info(chat_id) or {}
         chat_info.update(update)
         await self.cache.set_data(f'chat:{chat_id}:info',chat_info)

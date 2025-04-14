@@ -1,7 +1,9 @@
 import json
 from datetime import datetime, timezone
 import asyncio
-
+from cache_managers_upd.message_manager import MessageCacheManager
+from cache_managers_upd.chat_manager import ChatCacheManager
+from cache_managers_upd.notifications_manager.notifications_manager import NotificationAnalyticsManager, NotificationCacheManager
 
 class NotificationEventProcessorPRODUCER:
     """
@@ -22,8 +24,8 @@ class NotificationEventProcessorPRODUCER:
             "message_lock", "notification_lock", "summary_lock", "websocket_lock", "kafka_lock".
     """
 
-    def __init__(self, message_manager, notification_cache_manager, notification_analytics_manager,
-                 kafka_producer, websocket_manager, locks=None):
+    def __init__(self, message_manager: MessageCacheManager, notification_cache_manager: NotificationCacheManager, notification_analytics_manager: NotificationAnalyticsManager,
+                 chat_manager: ChatCacheManager, kafka_producer, websocket_manager, locks=None):
         if locks is None:
             locks = {
                 "message_lock": asyncio.Lock(),
@@ -35,6 +37,7 @@ class NotificationEventProcessorPRODUCER:
         self.message = message_manager
         self.notification_cache = notification_cache_manager
         self.notification_analytics = notification_analytics_manager
+        self.chat_manager = chat_manager
         self.producer = kafka_producer
         self.websocket_manager = websocket_manager
            
@@ -43,6 +46,9 @@ class NotificationEventProcessorPRODUCER:
         self.summary_lock = locks.get("summary_lock")
         self.websocket_lock = locks.get("websocket_lock")
         self.kafka_lock = locks.get("kafka_lock")
+
+    async def get_user_consumer_list(self, chat_id):
+        return await self.chat_manager.get_chat_info(chat_id)
 
     async def produce_ack_event(self, user_producer_id: str, user_consumer_id: str, chat_id: str) -> dict:
         """
@@ -64,9 +70,10 @@ class NotificationEventProcessorPRODUCER:
         Returns:
           dict: The acknowledgment event payload.
         """
+
         # Step 1: Update message statuses in the cache.
         async with self.message_lock:
-            await self.message.update_message(chat_id, user_producer_id, is_read=True, is_delivered=True)
+            await self.message.update_message(chat_id, user_producer_id)
 
         # Step 2: Delete notifications for this chat for the producer.
         async with self.notification_lock:
@@ -74,7 +81,7 @@ class NotificationEventProcessorPRODUCER:
 
         # Step 3: Update the producer's analytical summary.
         async with self.summary_lock:
-            updated_summary = await self.notification_analytics.update_summary(user_producer_id)
+            updated_summary = await self.notification_analytics.compute_summary(user_producer_id)
 
         # Step 4: Construct the acknowledgment event payload.
         ack_event = {
@@ -140,11 +147,11 @@ class NotificationEventProcessorPRODUCER:
             "timestamp": timestamp
         }
         async with self.message_lock:
-            message_data_with_id, chat_participants = await self.message.add_message_to_cache(chat_id, message_data)
+            message_data_with_id, chat_participants = await self.message.add_message(chat_id, message_data)
 
         if not message_data_with_id or "_id" not in message_data_with_id:
             # If storing the message failed (or no ID was returned), exit early.
-            return None
+            return {}
 
         # Step 3: Create a notification for the receiver.
         notification_payload = {
@@ -166,12 +173,12 @@ class NotificationEventProcessorPRODUCER:
             timestamp: str
         """
         async with self.notification_lock:
-            await self.notification_cache.add_notification(user_id=user_consumer_id,
+            await self.notification_cache.create_notification(user_id=user_consumer_id,
                                                            notification_data=notification_payload)
 
         # Step 4: Update the analytical summary for the sender.
         async with self.summary_lock:
-            updated_summary_sender = await self.notification_analytics.update_summary(user_producer_id)
+            updated_summary_sender = await self.notification_analytics.compute_summary(user_producer_id)
 
         # Step 5: Retrieve updated messages for the chat.
         async with self.message_lock:

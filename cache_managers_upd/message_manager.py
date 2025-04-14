@@ -12,7 +12,7 @@ class MessageCacheManager:
 
         messages = await self.db.read_documents(
             collection='message',
-            query={'chat_id': chat_id},
+            query={'chat_id': ObjectId(chat_id)},
             sort=[('timestamp', -1)],
             limit=200
         )
@@ -33,6 +33,7 @@ class MessageCacheManager:
             result = await self.db.add_document('message', message_data)
             message_data['_id'] = str(result.inserted_id)
             messages = await self.cache.get_data(chat_id)
+            messages = [] if messages is None else messages
             messages.append(message_data)
             await self.cache.set_data(f'chat:{chat_id}:messages', messages)
 
@@ -45,9 +46,9 @@ class MessageCacheManager:
         if update is None:
             update = {"is_read": True, "is_delivered": True}
         if message_id:
-            await self.db.update_document('message', {"_id": ObjectId(message_id)}, {"$set": update})
+            await self.db.update_document('message', {"_id": ObjectId(message_id)}, update)
         else:
-            await self.db.update_document('message', {"chat_id": chat_id}, {"$set": update})
+            await self.db.update_document('message', {"chat_id": ObjectId(chat_id)}, update)
         messages = await self.cache.get_data(chat_id)
         if messages:
             for msg in messages:

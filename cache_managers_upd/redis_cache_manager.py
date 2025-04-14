@@ -2,6 +2,7 @@ import json
 from bson import json_util
 import redis.asyncio as redis
 from .base_cache_manager import CacheManager
+from bson.son import SON
 
 class RedisCacheManager(CacheManager):
     def __init__(self, redis_url: str):

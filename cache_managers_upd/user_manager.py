@@ -79,7 +79,7 @@ class UserCacheManager:
             dict: The updated user profile.
         """
         # Update the user's document in the MongoDB 'user' collection.
-        await self.db.update_document('user', {'_id': ObjectId(user_id)}, {"$set": updated_data})
+        await self.db.update_document('user', {'_id': ObjectId(user_id)}, updated_data)
 
         # Retrieve the current cached profile; if missing, initialize as an empty dictionary.
         profile = await self.get_user_profile(user_id) or {}
